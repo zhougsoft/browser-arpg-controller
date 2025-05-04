@@ -1,5 +1,6 @@
 import RAPIER from '@dimforge/rapier3d-compat'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import './style.css'
 
 const FIXED_TIME_STEP = 1 / 60 // seconds
@@ -39,10 +40,18 @@ async function main() {
   camera.position.copy(new THREE.Vector3()).add(CAMERA_OFFSET)
   camera.lookAt(0, 0, 0)
 
-  // --- lights
+  // --- lighting
+  const LIGHT_OFFSET = new THREE.Vector3(5, 10, 5)
+
   const dirLight = new THREE.DirectionalLight(0xffffff, 1)
-  dirLight.position.set(5, 10, 5)
+  dirLight.position.set(LIGHT_OFFSET.x, LIGHT_OFFSET.y, LIGHT_OFFSET.z)
   dirLight.castShadow = true
+  dirLight.shadow.mapSize.set(1024, 1024)
+  dirLight.shadow.camera.left = -GROUND_HALF_SIZE
+  dirLight.shadow.camera.right = GROUND_HALF_SIZE
+  dirLight.shadow.camera.top = GROUND_HALF_SIZE
+  dirLight.shadow.camera.bottom = -GROUND_HALF_SIZE
+  dirLight.shadow.camera.updateProjectionMatrix()
   scene.add(dirLight)
 
   // --- ground plane
@@ -66,17 +75,23 @@ async function main() {
   physicsWorld.createCollider(groundCollider, groundBody)
 
   // --- player
+
+  // collider
   const playerBodyDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(0, 1, 0)
     .lockRotations() // prevent spinning
   const playerBody = physicsWorld.createRigidBody(playerBodyDesc)
   physicsWorld.createCollider(RAPIER.ColliderDesc.capsule(0.5, 0.5), playerBody)
 
-  const playerMesh = new THREE.Mesh(
-    new THREE.CapsuleGeometry(0.5, 1, 4, 8),
-    new THREE.MeshStandardMaterial({ color: 0x00ff00 })
-  )
-  playerMesh.castShadow = true
+  // mesh
+  const gltfLoader = new GLTFLoader()
+  const { scene: model } = await gltfLoader.loadAsync('/mfer.glb')
+  model.scale.setScalar(4)
+  model.position.y = -1
+  model.traverse(obj => (obj as THREE.Mesh).isMesh && (obj.castShadow = true))
+
+  const playerMesh = new THREE.Group()
+  playerMesh.add(model)
   scene.add(playerMesh)
 
   // --- input & targeting
@@ -170,6 +185,11 @@ async function main() {
     playerMesh.position.set(t.x, t.y, t.z)
     camera.position.copy(playerMesh.position).add(CAMERA_OFFSET)
     camera.lookAt(playerMesh.position)
+
+    // move lighting position w/ player
+    dirLight.position.copy(playerMesh.position).add(LIGHT_OFFSET)
+    dirLight.target.position.copy(playerMesh.position)
+    dirLight.target.updateMatrixWorld()
 
     // render scene
     renderer.render(scene, camera)
